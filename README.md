@@ -1,2 +1,3 @@
-# emailtemplates
-A Intune Deployment of Set-ExchangeSignatures, with your own public template repository
+# Purpose
+
+Various Device Remediation scripts, usually located in pairs, will exist in this folder.
