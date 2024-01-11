@@ -3,13 +3,13 @@
     PowerShell script to remediate an pre/non existing Email Signatures; from Set-OutlookSignatures script.
 
 .EXAMPLE
-    .\Remediate-EmailSignatures.ps1
+    .\Remediate-OutlookSignatures.ps1
 
 .DESCRIPTION
     This PowerShell script is deployed as a remediation script using Microsoft Intune remediations.
 
 .LINK
-    https://github.com/sjackson0109/Intune/blob/main/Device%20Remediation/Remediate-EmailSignatures.ps1
+    https://github.com/sjackson0109/EmailTemplates/blob/main/Scripts/Remediate-OutlookSignatures.ps1
 
 .LINK
     https://github.com/Set-OutlookSignatures/Set-OutlookSignatures
@@ -18,20 +18,22 @@
     https://learn.microsoft.com/en-us/mem/intune/fundamentals/remediations
 
 .NOTES
-    Version:        1.0.3
+    Version:        1.0.7
     Creation Date:  2023-11-07
-    Last Updated:   2023-12-22
-    Author:         Simon Jackson / sjackson0109
+    Last Updated:   2024-01-04
+    Author:         Simon Jackson (sjackson0109) 
 #>
-$temp = $(Get-Location).path
-$logFile = "$temp\Set-OutlookSignatures.log"
-Start-Transcript $logFile -Append
+#$tempDir = $(Get-Location).path
+$tempDir = "$($env:TEMP)\OutlookSignatures"
+New-Item -ItemType Directory -Force -Path $tempDir -ErrorAction SilentlyContinue
+$logFile = "$tempDir\Set-OutlookSignatures.log"
+Start-Transcript $logFile -Force
 
 # Variables for Download and Extract
-$githubProductOrg = "Set-OutlookSignatures"     # Author of the main script
-$githubProductRepo = "Set-OutlookSignatures"    # Repo of the main script
-$githubTemplateOrg = "sjackson0109"             # update this to your own org 
-$githubTemplateRepo = "EmailTemplates"          # update this to your own repo, upload your templates into the `Templates` sub-folder, and create a release
+$githubProductOrg = "Set-OutlookSignatures"
+$githubProductRepo = "Set-OutlookSignatures"
+$githubTemplateOrg = "sjackson0109"         # update this to your own org 
+$githubTemplateRepo = "EmailTemplates"      # update this to your own repo
 
 # Product Variables (standard)
 $graphOnly = "true"
@@ -61,65 +63,72 @@ $templatePublished = $templateRelease.published_at
 $templateVersion = $templateRelease.tag_name
 
 # Specify the file-system of the downloaded targets
-$productRelease | Out-File "$githubProductRepo.json"
-$productZip = "$githubProductRepo-$productVersion.zip"
-$productPath = "$githubProductRepo-$productVersion" -replace '-v' , '_v'
+$productRelease | Out-File "$tempDir\$githubProductRepo.json"
+$productZip = "$tempDir\$githubProductRepo-$productVersion.zip"
+$productPath = "$tempDir\$githubProductRepo-$productVersion" -replace '-v' , '_v'
 
-$templateRelease | Out-File "$githubTemplateRepo.json"
-$templateZip = "$githubTemplateRepo-$templateVersion.zip"
-$templatePath = "$githubTemplateOrg-$githubTemplateRepo-$templateVersion" 
+$templateRelease | Out-File "$tempDir\$githubTemplateRepo.json"
+$templateZip = "$tempDir\$githubTemplateRepo-$templateVersion.zip"
+$templatePath = "$tempDir\$githubTemplateRepo-$templateVersion" 
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-
 # Check if the latest version is already downloaded, clean up the file-system and download+extract, or just extract again
-If (Test-Path "$temp\$productPath"){
-    Write-Host "Cleaning up local path $productPath"
+If (Test-Path "$productPath"){
+    Write-Host "Deleting previously extracted files inside $productPath"
+    Write-Output "Cleaned up ProductPath"
     Remove-Item $productPath -recurse -Force
 } else {
-    Write-Host "Creating product folder"
-    New-Item $productPath -ErrorAction SilentlyContinue
     Write-Host "Downloading $productUrl to $productZip"
-    Invoke-WebRequest $productUrl -Out $productZip
+    Invoke-WebRequest $productUrl -Out "$productZip"
 }
 
-If (Test-Path "$temp\$templatePath"){
-    Write-Host "Cleaning up local path $templatePath"
+If (Test-Path "$templatePath"){
+    Write-Host "Deleting previously extracted files inside $templatePath"
+    Write-Output "Cleaned up TemplatePath"
     Remove-Item $templatePath -recurse -Force
 } else {
     Write-Host "Downloading $templateUrl to $templateZip"
-    Invoke-WebRequest $templateUrl -Out $templateZip
+    Invoke-WebRequest $templateUrl -Out "$templateZip"
 }
-Write-host "===============" 
-Get-ChildItem .\
-Write-host "==============="
-
 
 # A fresh Extraction of the zipball files to the temp directory, filename encoding needs converting to ascii, not utf8.
 # Note: some errors with file-name length when testing with my user docs area. C:\WINDOWS\IMECache\HealthScripts\(GUID)\ is just as long, so skip errors. Only signature samples anyway, don't need them.
 Write-Host "Extracting $productZip"
-[System.IO.Compression.ZipFile]::ExtractToDirectory("$temp\$productZip", "$temp\", [System.Text.Encoding]::ascii)
+try { [System.IO.Compression.ZipFile]::ExtractToDirectory("$productZip", "$tempDir\", [System.Text.Encoding]::ascii) | Out-Null }
+Catch { Write-Host "$error"}
+
 Write-Host "Extracting $templateZip"
-[System.IO.Compression.ZipFile]::ExtractToDirectory("$temp\$templateZip", "$temp\", [System.Text.Encoding]::ascii)
-#Expand-Archive -path "$temp\$templateZip" -destinationPath "$temp\$targetPath" | out-null
+try { [System.IO.Compression.ZipFile]::ExtractToDirectory("$templateZip", "$tempDir\", [System.Text.Encoding]::ascii) | Out-Null }
+Catch { Write-Host "$error"}
 
 Write-host "==============="
-Get-ChildItem $temp
+Get-ChildItem -path $tempDir
 Write-host "==============="
 
 # Gather some path data
+$productFolderPrefix = "$gitHubProductRepo"
+$productExtracted = $(Get-ChildItem $tempDir -Directory -Recurse -Depth 0 | ? { $_.Name -match "^$productFolderPrefix" } | Sort LastWriteTime)[0].Name
+$productLocation = "$tempDir\$productExtracted"
+Write-Host "productLocation: $productLocation"
+
 $templateFolderPrefix = "$githubTemplateOrg-$gitHubTemplateRepo"
-$templateLocation = $(Get-ChildItem $temp -Directory -Recurse -Depth 0 | ? { $_.Name -match "^$templateFolderPrefix" } | Sort LastWriteTime)[0].Name
-$templateLocation = "$temp\$templateExtracted"
+$templateExtracted = $(Get-ChildItem $tempDir -Directory -Recurse -Depth 0 | ? { $_.Name -match "^$templateFolderPrefix" } | Sort LastWriteTime)[0].Name
+$templateLocation = "$tempDir\$templateExtracted"
+Write-Host "templateLocation: $templateLocation"
+
 
 # Clean up the downloaded content
-#Remove-Item -Path $productZip -Force
-#Remove-Item -Path $templateZip -Force
-
+#Remove-Item -Path "$tempDir\$productZip" -Force
+#Remove-Item -Path "$tempDir\$templateZip" -Force
 
 #Run product, with transcript logging, and args passed from variables above
-#Set-Location "$temp\$productPath"
-$script = ".\$productPath\Set-OutlookSignatures.ps1"
-powershell.exe -command "$script -graphonly $graphOnly -SignatureTemplatePath '$($(Get-Location).path)\$templateLocation\Signatures' -SignatureIniPath '$($(Get-Location).path)\$templateLocation\Signatures\_Signatures.ini' -SetCurrentUserOOFMessage $SetOofMsg -CreateRtfSignatures $CreateRtfSignatures -CreateTxtSignatures $CreateTxtSignatures -SignaturesForAutomappedAndAdditionalMailboxes $SignaturesForAutomappedAndAdditionalMailboxes -SetCurrentUserOutlookWebSignature $SetCurrentUserOutlookWebSignature -DeleteUserCreatedSignatures $DeleteUserCreatedSignatures -DeleteScriptCreatedSignaturesWithoutTemplate $DeleteScriptCreatedSignaturesWithoutTemplate"
+$script = "$productLocation\Set-OutlookSignatures.ps1"
+If (Test-Path `$templateLocation\Signatures\variables.ps1` ) {
+    powershell.exe -command "$script -graphonly $graphOnly -SignatureTemplatePath '$templateLocation\Signatures' -SignatureIniPath '$templateLocation\Signatures\_Signatures.ini' -ReplacementVariableConfigFile '$templateLocation\Signatures\variables.ps1' -SetCurrentUserOOFMessage $SetOofMsg -CreateRtfSignatures $CreateRtfSignatures -CreateTxtSignatures $CreateTxtSignatures -SignaturesForAutomappedAndAdditionalMailboxes $SignaturesForAutomappedAndAdditionalMailboxes -SetCurrentUserOutlookWebSignature $SetCurrentUserOutlookWebSignature -DeleteUserCreatedSignatures $DeleteUserCreatedSignatures -DeleteScriptCreatedSignaturesWithoutTemplate $DeleteScriptCreatedSignaturesWithoutTemplate"
+}
+Else {
+    powershell.exe -command "$script -graphonly $graphOnly -SignatureTemplatePath '$templateLocation\Signatures' -SignatureIniPath '$templateLocation\Signatures\_Signatures.ini' -SetCurrentUserOOFMessage $SetOofMsg -CreateRtfSignatures $CreateRtfSignatures -CreateTxtSignatures $CreateTxtSignatures -SignaturesForAutomappedAndAdditionalMailboxes $SignaturesForAutomappedAndAdditionalMailboxes -SetCurrentUserOutlookWebSignature $SetCurrentUserOutlookWebSignature -DeleteUserCreatedSignatures $DeleteUserCreatedSignatures -DeleteScriptCreatedSignaturesWithoutTemplate $DeleteScriptCreatedSignaturesWithoutTemplate"
+
+}
 Stop-Transcript
-exit 0
